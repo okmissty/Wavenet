@@ -9,7 +9,9 @@ A music visualizer: upload a mp3 and the screen will visualize the sounds!
 - Different visualizations
 - Sensetivity Slider
 - You can also change the amount of bars utilized
-- 
-<img width="1398" height="760" alt="image" src="https://github.com/user-attachments/assets/7d064fea-c661-4517-8e9b-8e4d48bfc389" />
+  
+<img width="1318" height="739" alt="image" src="https://github.com/user-attachments/assets/f475c1b9-2517-4f63-b1e9-2bbaf005bfcc" />
 
 
+
+Completed: 8/26/25
