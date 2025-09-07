@@ -1,0 +1,231 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Music Visualizer</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root{font-family:system-ui,Segoe UI,Roboto,Arial; --bg:#0f1720; --card:#0b1220; --text:#e6eef8}
+  body{margin:0;background:linear-gradient(180deg,var(--bg),#021019); color:var(--text); min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:18px;}
+  .app{width:960px; max-width:96%; background:rgba(255,255,255,0.03); border-radius:12px; padding:14px; box-shadow:0 8px 30px rgba(0,0,0,0.6)}
+  h1{margin:0 0 10px; font-size:20px}
+  .controls{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px}
+  button,input,select{padding:8px 10px; border-radius:8px; border:none; outline:none; font-size:14px}
+  .sl{display:flex; gap:10px; align-items:center;}
+  canvas{width:100%; height:360px; background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.05)); border-radius:8px; display:block}
+  .info{margin-top:8px; color: #bcd3e8; font-size:13px}
+  .small{font-size:13px; color:#9fb3c9}
+  label{font-size:13px}
+</style>
+</head>
+<body>
+  <div class="app">
+    <h1>Music Visualizer</h1>
+    <div class="controls">
+      <input id="file" type="file" accept="audio/*">
+      <button id="micBtn">Use Microphone</button>
+      <button id="playBtn" disabled>Play</button>
+      <button id="pauseBtn" disabled>Pause</button>
+
+      <div style="width:18px"></div>
+
+      <div class="sl">
+        <label class="small">Bars</label>
+        <input id="bars" type="range" min="8" max="256" value="64">
+      </div>
+      <div class="sl">
+        <label class="small">Sensitivity</label>
+        <input id="sensitivity" type="range" min="0.5" max="10" step="0.1" value="2.5">
+      </div>
+      <div class="sl">
+        <label class="small">Mode</label>
+        <select id="mode">
+          <option value="bars">Bars</option>
+          <option value="wave">Waveform</option>
+          <option value="dual">Dual (bars + wave)</option>
+        </select>
+      </div>
+    </div>
+
+    <canvas id="vis" width="1200" height="600"></canvas>
+    <div class="info">
+      Upload an MP3/OGG or use your microphone. For best results use Chrome/Edge. Use the "Bars" slider to change resolution.
+    </div>
+  </div>
+
+<script>
+(async function(){
+  const fileInput = document.getElementById('file');
+  const micBtn = document.getElementById('micBtn');
+  const playBtn = document.getElementById('playBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const barsSlider = document.getElementById('bars');
+  const sensitivitySlider = document.getElementById('sensitivity');
+  const modeSelect = document.getElementById('mode');
+
+  const canvas = document.getElementById('vis');
+  const ctx = canvas.getContext('2d', {alpha:false});
+  let audioCtx = null;
+  let source = null;
+  let analyser = null;
+  let dataArray = null;
+  let bufferLength = 0;
+  let audioElement = null;
+  let rafId = null;
+  let micStream = null;
+
+  function setupAnalyser(fftSize){
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (!analyser) analyser = audioCtx.createAnalyser();
+    analyser.fftSize = Math.max(32, Math.pow(2, Math.round(Math.log2(fftSize*2))));
+    bufferLength = analyser.frequencyBinCount;
+    dataArray = new Uint8Array(bufferLength);
+  }
+
+  function connectSource(node){
+    if (source) try{ source.disconnect() }catch(e){}
+    source = node;
+    source.connect(analyser);
+    analyser.connect(audioCtx.destination);
+  }
+
+  function startVisual(){
+    cancelAnimationFrame(rafId);
+    function draw(){
+      rafId = requestAnimationFrame(draw);
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      analyser.getByteFrequencyData(dataArray);
+      const mode = modeSelect.value;
+      const sensitivity = parseFloat(sensitivitySlider.value);
+      const bars = parseInt(barsSlider.value);
+      // resize internal sample count to bars
+      const step = Math.max(1, Math.floor(bufferLength / bars));
+      const width = canvas.width;
+      const height = canvas.height;
+
+      // background gradient
+      const g = ctx.createLinearGradient(0,0,0,height);
+      g.addColorStop(0,'#021a21');
+      g.addColorStop(1,'#051824');
+      ctx.fillStyle = g;
+      ctx.fillRect(0,0,width,height);
+
+      if(mode === 'bars' || mode === 'dual'){
+        const barWidth = width / bars;
+        for(let i=0;i<bars;i++){
+          let sum=0, count=0;
+          for(let j=0;j<step;j++){
+            const idx = Math.min(bufferLength-1, i*step + j);
+            sum += dataArray[idx];
+            count++;
+          }
+          const v = (sum/count)/255;
+          const barH = Math.pow(v * sensitivity, 1.2) * height;
+          // color ramp
+          const hue = Math.floor(200 - (i/bars)*200);
+          ctx.fillStyle = `hsl(${hue} 90% 60% / 0.95)`;
+          const x = i * barWidth;
+          ctx.fillRect(x, height - barH, Math.max(1, barWidth-1), barH);
+          // small glow
+          ctx.fillStyle = `rgba(255,255,255,${Math.min(0.03, v*0.05)})`;
+          ctx.fillRect(x, height - barH - 2, Math.max(1, barWidth-1), 2);
+        }
+      }
+
+      if(mode === 'wave' || mode === 'dual'){
+        // waveform uses time domain
+        const timeData = new Uint8Array(bufferLength);
+        analyser.getByteTimeDomainData(timeData);
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        const sliceWidth = width / bufferLength;
+        let x = 0;
+        for(let i=0;i<bufferLength;i++){
+          const v = (timeData[i] - 128) / 128; // -1..1
+          const y = height/2 + v * height/2 * sensitivity * 0.6;
+          if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+          x += sliceWidth;
+        }
+        ctx.strokeStyle = "rgba(180,230,255,0.95)";
+        ctx.stroke();
+      }
+    }
+    draw();
+  }
+
+  function stopVisual(){
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+
+  fileInput.onchange = async (e)=>{
+    stopMic();
+    const file = e.target.files[0];
+    if(!file) return;
+    if(audioElement) { audioElement.pause(); audioElement.src = ''; audioElement.remove(); audioElement=null; }
+    audioElement = new Audio(URL.createObjectURL(file));
+    audioElement.crossOrigin = "anonymous";
+    audioElement.loop = false;
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // create media element source
+    const elSource = audioCtx.createMediaElementSource(audioElement);
+    setupAnalyser(parseInt(barsSlider.value));
+    connectSource(elSource);
+    playBtn.disabled = false;
+    pauseBtn.disabled = false;
+    playBtn.onclick = ()=>{ audioElement.play(); if(audioCtx.state==='suspended') audioCtx.resume(); startVisual(); };
+    pauseBtn.onclick = ()=>{ audioElement.pause(); stopVisual(); };
+    audioElement.onended = ()=> stopVisual();
+    // auto play (user gesture required in some browsers)
+    try{ await audioElement.play(); if(audioCtx.state==='suspended') audioCtx.resume(); startVisual(); }catch(e){}
+  };
+
+  async function startMic(){
+    try{
+      micStream = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
+    }catch(e){ alert('Microphone access denied or unavailable'); return; }
+    if(audioElement) { audioElement.pause(); audioElement=null; }
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    setupAnalyser(parseInt(barsSlider.value));
+    const micSrc = audioCtx.createMediaStreamSource(micStream);
+    connectSource(micSrc);
+    if(audioCtx.state === 'suspended') await audioCtx.resume();
+    startVisual();
+    playBtn.disabled = true; pauseBtn.disabled = false;
+    pauseBtn.onclick = ()=>{ stopMic(); };
+  }
+
+  function stopMic(){
+    if(micStream){
+      micStream.getTracks().forEach(t=>t.stop());
+      micStream = null;
+    }
+    stopVisual();
+    if(source){ try{ source.disconnect(); }catch(e){} source=null; }
+    pauseBtn.disabled = true;
+    playBtn.disabled = false;
+  }
+
+  micBtn.onclick = ()=> {
+    if(micStream) stopMic(); else startMic();
+  };
+
+  // update analyser when sliders change
+  barsSlider.oninput = ()=> {
+    if(analyser) {
+      setupAnalyser(parseInt(barsSlider.value));
+    }
+  };
+
+  // resize canvas to device pixels for crispness
+  function resize(){
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.floor(canvas.clientWidth * dpr);
+    canvas.height = Math.floor(canvas.clientHeight * dpr);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+})();
+</script>
+</body>
+</html>
