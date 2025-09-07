@@ -2,12 +2,13 @@
 <html>
 <head>
 <meta charset="utf-8" />
-<title>Music Visualizer</title>
+<title>Wavenet</title>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
+  /* CSS variables and base styles for the app */
   :root{font-family:system-ui,Segoe UI,Roboto,Arial; --bg:#0f1720; --card:#0b1220; --text:#e6eef8}
-  body{margin:0;background:linear-gradient(180deg,var(--bg),#021019); color:var(--text); min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:18px;}
-  .app{width:960px; max-width:96%; background:rgba(255,255,255,0.03); border-radius:12px; padding:14px; box-shadow:0 8px 30px rgba(0,0,0,0.6)}
+  body{margin:0;background:linear-gradient(180deg,var(--bg),#a1c6ca); color:var(--text); min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:18px;}
+  .app{width:960px; max-width:96%; background:rgba(193, 166, 166, 0.03); border-radius:12px; padding:14px; box-shadow:0 8px 30px rgba(0,0,0,0.6)}
   h1{margin:0 0 10px; font-size:20px}
   .controls{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px}
   button,input,select{padding:8px 10px; border-radius:8px; border:none; outline:none; font-size:14px}
@@ -20,23 +21,29 @@
 </head>
 <body>
   <div class="app">
-    <h1>Music Visualizer</h1>
+    <h1>Wavenet</h1>
     <div class="controls">
+      <!-- File input for uploading audio files -->
       <input id="file" type="file" accept="audio/*">
+      <!-- Button to use microphone as audio source -->
       <button id="micBtn">Use Microphone</button>
+      <!-- Play and Pause buttons for audio playback -->
       <button id="playBtn" disabled>Play</button>
       <button id="pauseBtn" disabled>Pause</button>
 
       <div style="width:18px"></div>
 
+      <!-- Slider to control number of bars in visualization -->
       <div class="sl">
         <label class="small">Bars</label>
         <input id="bars" type="range" min="8" max="256" value="64">
       </div>
+      <!-- Slider to control sensitivity of visualization -->
       <div class="sl">
         <label class="small">Sensitivity</label>
         <input id="sensitivity" type="range" min="0.5" max="10" step="0.1" value="2.5">
       </div>
+      <!-- Dropdown to select visualization mode -->
       <div class="sl">
         <label class="small">Mode</label>
         <select id="mode">
@@ -47,14 +54,16 @@
       </div>
     </div>
 
+    <!-- Canvas for drawing the audio visualization -->
     <canvas id="vis" width="1200" height="600"></canvas>
     <div class="info">
-      Upload an MP3/OGG or use your microphone. For best results use Chrome/Edge. Use the "Bars" slider to change resolution.
+      Upload an MP3/OGG or use your microphone. Recommended to use chrome/edge!. Use the "Bars" slider to change resolution.
     </div>
   </div>
 
 <script>
 (async function(){
+  // Get references to UI elements
   const fileInput = document.getElementById('file');
   const micBtn = document.getElementById('micBtn');
   const playBtn = document.getElementById('playBtn');
@@ -63,8 +72,10 @@
   const sensitivitySlider = document.getElementById('sensitivity');
   const modeSelect = document.getElementById('mode');
 
+  // Get canvas and context for drawing
   const canvas = document.getElementById('vis');
   const ctx = canvas.getContext('2d', {alpha:false});
+  // Audio context and related variables
   let audioCtx = null;
   let source = null;
   let analyser = null;
@@ -74,6 +85,7 @@
   let rafId = null;
   let micStream = null;
 
+  // Setup analyser node with given FFT size
   function setupAnalyser(fftSize){
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (!analyser) analyser = audioCtx.createAnalyser();
@@ -82,6 +94,7 @@
     dataArray = new Uint8Array(bufferLength);
   }
 
+  // Connect a source node to the analyser and destination
   function connectSource(node){
     if (source) try{ source.disconnect() }catch(e){}
     source = node;
@@ -89,6 +102,7 @@
     analyser.connect(audioCtx.destination);
   }
 
+  // Start the visualization animation loop
   function startVisual(){
     cancelAnimationFrame(rafId);
     function draw(){
@@ -103,13 +117,14 @@
       const width = canvas.width;
       const height = canvas.height;
 
-      // background gradient
+      // Draw background gradient
       const g = ctx.createLinearGradient(0,0,0,height);
       g.addColorStop(0,'#021a21');
       g.addColorStop(1,'#051824');
       ctx.fillStyle = g;
       ctx.fillRect(0,0,width,height);
 
+      // Draw frequency bars if mode is bars or dual
       if(mode === 'bars' || mode === 'dual'){
         const barWidth = width / bars;
         for(let i=0;i<bars;i++){
@@ -121,19 +136,20 @@
           }
           const v = (sum/count)/255;
           const barH = Math.pow(v * sensitivity, 1.2) * height;
-          // color ramp
+          // color ramp for each bar
           const hue = Math.floor(200 - (i/bars)*200);
           ctx.fillStyle = `hsl(${hue} 90% 60% / 0.95)`;
           const x = i * barWidth;
           ctx.fillRect(x, height - barH, Math.max(1, barWidth-1), barH);
-          // small glow
+          // small glow on top of each bar
           ctx.fillStyle = `rgba(255,255,255,${Math.min(0.03, v*0.05)})`;
           ctx.fillRect(x, height - barH - 2, Math.max(1, barWidth-1), 2);
         }
       }
 
+      // Draw waveform if mode is wave or dual
       if(mode === 'wave' || mode === 'dual'){
-        // waveform uses time domain
+        // waveform uses time domain data
         const timeData = new Uint8Array(bufferLength);
         analyser.getByteTimeDomainData(timeData);
         ctx.lineWidth = 2;
@@ -153,15 +169,18 @@
     draw();
   }
 
+  // Stop the visualization animation
   function stopVisual(){
     cancelAnimationFrame(rafId);
     rafId = null;
   }
 
+  // Handle file input change (user uploads audio file)
   fileInput.onchange = async (e)=>{
-    stopMic();
+    stopMic(); // stop mic if active
     const file = e.target.files[0];
     if(!file) return;
+    // Clean up previous audio element if any
     if(audioElement) { audioElement.pause(); audioElement.src = ''; audioElement.remove(); audioElement=null; }
     audioElement = new Audio(URL.createObjectURL(file));
     audioElement.crossOrigin = "anonymous";
@@ -173,13 +192,17 @@
     connectSource(elSource);
     playBtn.disabled = false;
     pauseBtn.disabled = false;
+    // Play button event
     playBtn.onclick = ()=>{ audioElement.play(); if(audioCtx.state==='suspended') audioCtx.resume(); startVisual(); };
+    // Pause button event
     pauseBtn.onclick = ()=>{ audioElement.pause(); stopVisual(); };
+    // Stop visual when audio ends
     audioElement.onended = ()=> stopVisual();
     // auto play (user gesture required in some browsers)
     try{ await audioElement.play(); if(audioCtx.state==='suspended') audioCtx.resume(); startVisual(); }catch(e){}
   };
 
+  // Start microphone input and visualization
   async function startMic(){
     try{
       micStream = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
@@ -192,9 +215,11 @@
     if(audioCtx.state === 'suspended') await audioCtx.resume();
     startVisual();
     playBtn.disabled = true; pauseBtn.disabled = false;
+    // Pause button stops mic
     pauseBtn.onclick = ()=>{ stopMic(); };
   }
 
+  // Stop microphone input and visualization
   function stopMic(){
     if(micStream){
       micStream.getTracks().forEach(t=>t.stop());
@@ -206,18 +231,19 @@
     playBtn.disabled = false;
   }
 
+  // Microphone button toggles mic on/off
   micBtn.onclick = ()=> {
     if(micStream) stopMic(); else startMic();
   };
 
-  // update analyser when sliders change
+  // Update analyser when bars slider changes
   barsSlider.oninput = ()=> {
     if(analyser) {
       setupAnalyser(parseInt(barsSlider.value));
     }
   };
 
-  // resize canvas to device pixels for crispness
+  // Resize canvas to device pixels for crispness
   function resize(){
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.floor(canvas.clientWidth * dpr);
